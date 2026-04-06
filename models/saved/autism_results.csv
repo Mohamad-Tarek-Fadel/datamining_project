@@ -1,0 +1,6 @@
+Model,CV F1,CV F1 std,Accuracy,Precision,Recall,F1,Specificity,ROC-AUC,PR-AUC,MCC
+Logistic Regression,0.8844,0.0085,0.907,0.7925,0.9307,0.8561,0.897,0.9561,0.8615,0.7936
+Decision Tree,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0
+Random Forest,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0
+XGBoost,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0
+LightGBM,1.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0
