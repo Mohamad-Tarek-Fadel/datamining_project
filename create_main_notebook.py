@@ -35,22 +35,23 @@ cells = []
 cells.append(
     md("""
 # 🏥 Early Disease Prediction Using Healthcare Data Warehouse
-### Complete Project Dashboard — All Phases in One Notebook
+## Complete Project Dashboard — Medallion Data Architecture
 
-| Phase | Script / Notebook | Description |
+This notebook presents the complete end-to-end data pipeline, strictly adhering to the **Medallion Data Architecture (Bronze 🥉 → Silver 🥈 → Gold 🥇)**.
+
+| Layer / Phase | Script / Notebook | Description |
 |---|---|---|
-| **0 — Inspect** | `etl_pipeline/load_and_inspect.py` | Raw data audit |
-| **1A — Clean** | `etl_pipeline/clean.py` | ETL cleaning & encoding |
-| **1B — Warehouse** | `etl_pipeline/warehouse.py` | SQLite Star Schema |
-| **2 — EDA** | `eda/02_eda.ipynb` | 14 figures + statistical tests |
-| **3 — Features** | `models/03_feature_engineering.ipynb` | SMOTE · Scaling · Splits |
-| **4 — Models** | `models/04_modeling.ipynb` | 5 classifiers × 3 diseases |
-| **SQL** | `warehouse/03_sql_analysis.ipynb` | 20 OLAP queries |
+| **🥉 Bronze Layer** | `etl_pipeline/load_and_inspect.py` | Raw data ingestion & quality audit |
+| **🥈 Silver Layer** | `etl_pipeline/clean.py` | ETL cleaning, imputation & standardisation |
+| **🥇 Gold Layer** | `etl_pipeline/warehouse.py` | SQLite Star Schema Data Warehouse |
+| **📊 EDA** | `eda/02_eda.ipynb` | Exploratory Data Analysis & Statistical Testing |
+| **⚙️ Features** | `models/03_feature_engineering.ipynb` | SMOTE · Scaling · Stratified Splits |
+| **🧠 ML Models** | `models/04_modeling.ipynb` | 5 Classifiers per disease (Decision Trees, Ensembles) |
+| **🔍 SQL OLAP** | `warehouse/03_sql_analysis.ipynb` | 20 Analytical Queries (Roll-up, Slice, Dice) |
 
 > **How to use this notebook:**
 > Run every cell top-to-bottom with **Kernel → Restart & Run All**.
-> Each section first checks whether its artefacts already exist and skips
-> re-running if they do — making the notebook fast on subsequent opens.
+> The system is idempotent; if artifacts already exist, it will instantly load and display them to save time.
 """)
 )
 
@@ -98,6 +99,7 @@ def run_script(script_path: Path) -> None:
         [sys.executable, str(script_path)],
         capture_output=False,
         text=True,
+        encoding="utf-8",
         cwd=str(ROOT),
     )
     if result.returncode != 0:
@@ -154,10 +156,9 @@ print("All artefacts present — you can run in READ-ONLY mode." if all_ready
 cells.append(
     md("""
 ---
-## Phase 0 · Raw Data Inspection
+## 🥉 Bronze Data Layer — Raw Data Ingestion & Audit
 
-Audit the three original CSV files — shapes, column types, and missing values —
-**without modifying anything**.  The raw files in `datasets/` are never touched.
+The **Bronze Layer** represents our data in its rawest form. Here, we ingest the three original CSV files (Autism, Diabetes, Stroke) and perform a comprehensive data quality audit — analyzing shapes, column types, and detecting missing values — **without modifying anything**. The raw files in `datasets/` act as our immutable source of truth.
 """)
 )
 
@@ -176,16 +177,15 @@ run_script(ETL / 'load_and_inspect.py')
 cells.append(
     md("""
 ---
-## Phase 1A · ETL Cleaning  (`clean.py`)
+## 🥈 Silver Data Layer — ETL Cleaning & Standardisation
 
-Applies all dataset-specific cleaning rules and saves three cleaned CSVs to
-`datasets/cleaned/`.
+The **Silver Layer** transforms raw data into a clean, validated, and standardised format. Our ETL pipeline (`clean.py`) enforces strict cleaning rules and saves the refined data to `datasets/cleaned/`.
 
-| Dataset | Key Transformations |
+| Dataset | Key Transformations in Silver Layer |
 |---|---|
-| **Autism** | Fix `Jauundice` typo · encode binary cols · engineer `AQ_Score` |
-| **Diabetes** | Encode 14 Yes/No symptoms · rename target column |
-| **Stroke** | Drop `id` · drop `Other` gender row · **grouped-median BMI imputation** |
+| **Autism** | Fixed `Jauundice` typo · encoded binary features (yes/no → 1/0) · engineered `AQ_Score` |
+| **Diabetes** | Encoded 14 text-based symptoms into binary flags · standardised target column |
+| **Stroke** | Dropped surrogate `id` · **Age-bracket Grouped-Median BMI Imputation** to prevent age bias |
 """)
 )
 
@@ -249,19 +249,20 @@ for name, fname in [('Autism', 'autism_cleaned.csv'),
 cells.append(
     md("""
 ---
-## Phase 1B · Data Warehouse  (`warehouse.py`)
+## 🥇 Gold Data Layer — SQLite Star Schema Data Warehouse
 
-Builds the **SQLite Star Schema** with explicit raw SQL `CREATE TABLE`
-statements.  The schema is:
+The **Gold Layer** is our business-ready, analytical data warehouse. We implement a **Star Schema** using an SQLite database (`health_warehouse.db`). This layer powers all downstream EDA, ML, and OLAP queries.
 
+### Architecture
+```text
+dim_patient (Dimension)  [PK: patient_id AUTOINCREMENT]
+    ├── fact_autism      [FK → patient_id, 15 features + label]
+    ├── fact_diabetes    [FK → patient_id, 14 symptoms + label]
+    └── fact_stroke      [FK → patient_id,  9 features + label]
 ```
-dim_patient  (PK: patient_id AUTO)
-    ├── fact_autism    (FK → patient_id, 15 features + label)
-    ├── fact_diabetes  (FK → patient_id, 14 symptoms + label)
-    └── fact_stroke    (FK → patient_id,  9 features + label)
-```
 
-All three fact tables use `ON DELETE CASCADE`.
+- **Data Integrity**: Enforced via `ON DELETE CASCADE`, explicit `CHECK (col IN (0,1))` constraints, and `NOT NULL`.
+- **Performance**: 8 B-Tree indexes created on Foreign Keys and Target labels.
 """)
 )
 
@@ -313,17 +314,16 @@ if DB.exists():
 cells.append(
     md("""
 ---
-## Phase 2 · Exploratory Data Analysis
+## 📊 Exploratory Data Analysis (EDA)
 
-Key EDA figures saved in `reports/figures/`.
-The full interactive EDA notebook is at `eda/02_eda.ipynb`.
+With our Gold Layer established, we conduct deep exploratory analysis to understand feature distributions, class imbalances, and clinical correlations.
 
-**Highlights:**
-- Class imbalance audit across all 3 diseases
-- AQ-10 item heatmap (autism)
-- Symptom prevalence ranking (diabetes)
-- Stroke risk by smoking status & comorbidities
-- 14 statistical tests (Chi-square + Mann-Whitney U)
+**Key Statistical Discoveries:**
+- **Class Imbalance**: Stroke dataset presents a severe **19.5 : 1** imbalance.
+- **Autism**: `AQ_Score` demonstrates near-perfect linear separability at the clinical threshold of 6.
+- **Diabetes**: *Polyuria* and *Polydipsia* identified as the most dominant discriminators.
+- **Stroke**: Age is the strongest predictor (mean 67.7 for stroke vs 43.2 for non-stroke).
+- **Statistical Rigor**: Validated via 14 distinct statistical tests (Chi-square & Mann-Whitney U).
 """)
 )
 
@@ -368,16 +368,17 @@ if all_eda_figs:
 cells.append(
     md("""
 ---
-## Phase 3 · Feature Engineering
+## ⚙️ Feature Engineering & Preprocessing
 
-All preprocessing artifacts are pre-saved in `models/saved/`.
-The full notebook is at `models/03_feature_engineering.ipynb`.
+Preparing data for Machine Learning models requires rigorous preprocessing to handle scaling and extreme class imbalances without leaking data.
 
-| Dataset | Train | Test | Features | Imbalance Strategy |
+| Dataset | Train Size | Test Size | Features | Preprocessing Strategy |
 |---|---|---|---|---|
-| Autism | 4,860 | 1,215 | 15 | `class_weight='balanced'` |
-| Diabetes | 416 | 104 | 16 | `class_weight='balanced'` |
-| Stroke | 4,087+SMOTE | 1,022 | 15 | SMOTE → 7,776 balanced samples |
+| **Autism** | 4,860 | 1,215 | 15 | `StandardScaler` + `class_weight='balanced'` |
+| **Diabetes** | 416 | 104 | 16 | `StandardScaler` + `class_weight='balanced'` |
+| **Stroke** | 4,087 + **SMOTE** | 1,022 | 15 | **SMOTE (Synthetic Minority Over-sampling)** → 7,776 balanced training samples |
+
+> ⚠️ **CRITICAL METHODOLOGY:** SMOTE was applied **ONLY** to the training data. Applying it before the split would leak synthetic patterns into the test set, creating dangerously overconfident models. The test set always preserves the real-world 19.5:1 imbalance.
 """)
 )
 
@@ -431,16 +432,14 @@ else:
 cells.append(
     md("""
 ---
-## Phase 4 · Model Training & Evaluation
+## 🧠 Machine Learning Models & Evaluation
 
-Five classifiers trained on each of the three disease datasets.
+We trained and evaluated **5 advanced classifiers** per disease (Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM).
 
-**Primary metrics used:**
-- **Autism / Diabetes**: F1-Score, ROC-AUC, MCC
-- **Stroke**: Recall + PR-AUC  *(a missed stroke = a preventable death)*
+### 🎯 Evaluation Philosophy
+Accuracy is a deceptive metric in clinical datasets. For stroke prediction, a trivial model predicting "No Stroke" achieves 95.13% accuracy but kills patients. Therefore, our **primary metrics** are **Recall** and **PR-AUC**.
 
-> The stroke model achieves **Recall = 0.82** — identifying 82% of all actual
-> stroke patients — despite a 19.5 : 1 class imbalance.
+> **Breakthrough:** Our Logistic Regression model for Stroke achieved a **Recall of 0.820**, successfully catching 82% of all true strokes despite the severe 19.5:1 class imbalance.
 """)
 )
 
@@ -811,7 +810,7 @@ nb = new_notebook(cells=cells, metadata=metadata)
 with open(NOTEBOOK_OUT, "w", encoding="utf-8") as fh:
     nbformat.write(nb, fh)
 
-print(f"[OK]  Notebook written  →  {NOTEBOOK_OUT}")
+print(f"[OK]  Notebook written  ->  {NOTEBOOK_OUT}")
 print(f"      Cells : {len(cells)}")
 print()
 print("  Open with:")
