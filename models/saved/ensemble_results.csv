@@ -1,0 +1,10 @@
+dataset,Model,CV F1,F1,Recall,Precision,ROC-AUC,PR-AUC,MCC
+autism,Voting (Soft),1.0,1.0,1.0,1.0,1.0,1.0,1.0
+autism,Voting (Hard),1.0,1.0,1.0,1.0,0.0,0.0,1.0
+autism,Stacking (LR Meta),1.0,1.0,1.0,1.0,1.0,1.0,1.0
+diabetes,Voting (Soft),0.9688,0.9809,0.9808,0.9817,0.9996,0.9998,0.9605
+diabetes,Voting (Hard),0.9688,0.9809,0.9808,0.9817,0.0,0.0,0.9605
+diabetes,Stacking (LR Meta),0.9712,0.9904,0.9904,0.9906,1.0,1.0,0.98
+stroke,Voting (Soft),0.9303,0.9274,0.9384,0.9189,0.652,0.1126,0.1185
+stroke,Voting (Hard),0.9507,0.9265,0.9462,0.9122,0.0,0.0,0.0362
+stroke,Stacking (LR Meta),0.9725,0.9272,0.9511,0.9045,0.65,0.1044,0.0

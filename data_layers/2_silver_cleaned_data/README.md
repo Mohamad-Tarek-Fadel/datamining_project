@@ -1,14 +1,24 @@
-# 🥈 Silver Data Layer — Cleaned, Validated & Standardised Data
+# 🥈 Silver Data Layer — NLP-Extracted, Cleaned & Standardised Data
 
 ## Purpose
-The Silver Layer contains **cleaned and standardised** versions of the Bronze
-data. All data quality issues identified during inspection have been resolved
-here. The output CSVs are ready for loading into the Gold Layer (Warehouse)
-and for downstream analytics.
+The Silver Layer transforms **unstructured clinical text** from the Bronze
+Layer into **clean, structured DataFrames** using NLP and text mining
+techniques. This is the core data engineering step that demonstrates
+extraction from real-world unstructured healthcare data.
 
 ## Script
-- **`clean.py`** — Full ETL cleaning pipeline with validation assertions.
-  Every transformation is logged to stdout for auditability.
+- **`parse_unstructured.py`** — NLP/Regex extraction pipeline that reads
+  free-text clinical notes and extracts structured tabular data.
+
+## NLP Extraction Techniques Used
+
+| Technique | Application |
+|---|---|
+| **Regex Pattern Matching** | Extract age, gender, clinical measurements |
+| **Medical Terminology Detection** | Identify symptoms (polyuria, polydipsia, etc.) |
+| **Clinical Entity Extraction** | Parse AQ-10 item responses, comorbidities |
+| **Context-Aware Classification** | Distinguish "reports" vs "denies" symptoms |
+| **Data Type Inference** | Convert extracted text to int8/float32 |
 
 ## Output Files
 
@@ -18,80 +28,40 @@ and for downstream analytics.
 | `diabetes_cleaned.csv` | 520 | 17 | **0** | 61.5% |
 | `stroke_cleaned.csv` | 5,109 (-1 dropped) | 11 (-1 dropped) | **0** | 4.87% |
 
-## Transformations Applied
+## Extraction Pipeline (Bronze → Silver)
 
-### Autism Screening (Bronze → Silver)
-| Step | Transformation | Justification |
+### Autism Screening
+| Step | Operation | NLP Technique |
 |---|---|---|
-| 1 | Strip whitespace from all string columns | Data hygiene |
-| 2 | Rename `Jauundice` → `Jaundice` | Fix source typo |
-| 3 | Normalise `Sex`: `m`→`Male`, `f`→`Female`, then encode Male=1, Female=0 | Standardise + numeric encoding |
-| 4 | Encode `Jaundice`, `Family_ASD`: yes→1, no→0 | Binary encoding |
-| 5 | Encode target `Class`: YES→1, NO→0 | Binary encoding |
-| 6 | Verify AQ-10 items (A1–A10) are already 0/1 | Integrity check |
-| 7 | **Engineer `AQ_Score` = sum(A1..A10)** | Clinical AQ-10 total score (range 0–10) |
-| 8 | Enforce compact dtypes (int8/int16) | Memory optimisation |
-| 9 | **Assert zero missing values** | Hard validation gate |
+| 1 | Extract age from "X-year-old" pattern | Regex: `(\d+)-year-old` |
+| 2 | Extract sex from demographic sentence | Regex: `\d+-year-old\s+(male\|female)` |
+| 3 | Extract AQ-10 items from questionnaire | Regex: `Item A\d+:.*endorsed\|not endorsed` |
+| 4 | Calculate AQ_Score (sum of A1..A10) | Derived feature |
+| 5 | Extract jaundice history | Text search: "history of neonatal jaundice" |
+| 6 | Extract family ASD history | Text search: "family history of ASD" |
+| 7 | Extract classification | Regex: `Classification:\s*(YES\|NO)` |
 
-### Diabetes Risk (Bronze → Silver)
-| Step | Transformation | Justification |
+### Diabetes Risk
+| Step | Operation | NLP Technique |
 |---|---|---|
-| 1 | Strip whitespace from all string columns | Data hygiene |
-| 2 | Encode `Gender`: Male→1, Female→0 | Binary encoding |
-| 3 | Encode 14 symptom columns: Yes→1, No→0 | Binary encoding |
-| 4 | Encode target `class`: Positive→1, Negative→0 | Binary encoding |
-| 5 | Rename `class` → `Class` | Cross-dataset naming consistency |
-| 6 | Enforce compact dtypes (int8/int16) | Memory optimisation |
-| 7 | **Assert zero missing values** | Hard validation gate |
+| 1 | Extract age and gender | Regex pattern matching |
+| 2 | Parse "reports" symptom section | Context-aware section detection |
+| 3 | Parse "denies" symptom section | Context-aware section detection |
+| 4 | Match 14 medical symptoms | Medical terminology regex |
+| 5 | Extract risk classification | Regex: `Risk Classification:\s*(Positive\|Negative)` |
 
-### Stroke Prediction (Bronze → Silver)
-| Step | Transformation | Justification |
+### Stroke Prediction
+| Step | Operation | NLP Technique |
 |---|---|---|
-| 1 | Strip whitespace from all string columns | Data hygiene |
-| 2 | Drop `id` column | No predictive value (surrogate key) |
-| 3 | Remove 1 row where gender='Other' | Too sparse for encoding (1 out of 5,110) |
-| 4 | **BMI Imputation: grouped-median by age bracket** | See details below |
-| 5 | Encode `gender`: Male→1, Female→0 | Binary encoding |
-| 6 | Encode `ever_married`: Yes→1, No→0 | Binary encoding |
-| 7 | Encode `Residence_type`: Urban→1, Rural→0 | Binary encoding |
-| 8 | Keep `work_type` & `smoking_status` as strings | Multi-category → OHE deferred to Feature Engineering |
-| 9 | Rename `stroke` → `Class` | Cross-dataset naming consistency |
-| 10 | Enforce dtypes (int8/float32) | Memory optimisation |
-| 11 | **Assert zero missing values** | Hard validation gate |
-
-## BMI Imputation Strategy (Critical Decision)
-
-**Problem:** 201 missing BMI values (3.93% of stroke dataset).
-
-**Why NOT global median?**
-- Global median BMI ≈ 28.9
-- BMI varies **systematically** with age — using a single value would
-  introduce age-dependent bias
-
-**Solution: Grouped-Median Imputation by Age Bracket**
-
-| Age Bracket | Median BMI | Missing Count | Effect of Global Median |
-|---|---|---|---|
-| 0–18 | **20.1** | 21 | Would over-impute by +8.8 kg/m² |
-| 19–40 | 28.0 | 39 | Would over-impute by +0.9 |
-| 41–60 | 30.3 | 54 | Would under-impute by −1.4 |
-| 61–80 | 29.3 | 86 | Would under-impute by −0.4 |
-| 81+ | 27.5 | 1 | Would over-impute by +1.4 |
-
-> Using global median would **systematically over-impute children's BMI by
-> nearly 9 kg/m²**, which corrupts the most age-sensitive feature. The
-> grouped strategy preserves the natural BMI-age relationship.
+| 1 | Extract demographics (gender, age) | Regex matching |
+| 2 | Extract comorbidities (hypertension, heart disease) | Clinical entity detection |
+| 3 | Extract clinical measurements (glucose, BMI) | Numeric extraction regex |
+| 4 | Handle missing BMI ("Not recorded") | Missing value detection |
+| 5 | **BMI Imputation: grouped-median by age bracket** | Same strategy as original |
+| 6 | Drop gender="Other" row (1 record) | Data quality filtering |
+| 7 | Extract stroke outcome | Regex: `Outcome:\s*Stroke\|No Stroke` |
 
 ## Validation Gates
-Every dataset passes through these hard assertions before saving:
 1. **`assert_no_missing()`** — Raises `ValueError` if ANY NaN remains
-2. **`assert_binary_column()`** — Confirms encoded columns contain only {0, 1}
-3. **`print_change_summary()`** — Logs before/after shape and missing count
-
-## Class Imbalance Summary (Silver Layer)
-
-| Dataset | Positive | Negative | Ratio | Severity | ML Strategy |
-|---|---|---|---|---|---|
-| Autism | 1,804 (29.7%) | 4,271 (70.3%) | 1:2.4 | Mild | `class_weight='balanced'` |
-| Diabetes | 320 (61.5%) | 200 (38.5%) | 1:0.6 | Mild | `class_weight='balanced'` |
-| Stroke | 249 (4.87%) | 4,860 (95.13%) | **1:19.5** | **Severe** | **SMOTE** |
+2. **Record count verification** — Must match source record count
+3. **Data type enforcement** — int8 for binary, float32 for continuous

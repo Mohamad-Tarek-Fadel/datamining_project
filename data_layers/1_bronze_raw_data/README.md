@@ -1,42 +1,58 @@
-# 🥉 Bronze Data Layer — Raw Data (Immutable Source of Truth)
+# 🥉 Bronze Data Layer — Unstructured Clinical Notes (Raw Source of Truth)
 
 ## Purpose
-The Bronze Layer contains the **original, unmodified** CSV files exactly as
-downloaded from Kaggle. No cleaning, no encoding, no imputation has been
-applied. This layer serves as the **immutable audit trail** — we can always
-trace any downstream result back to its raw origin.
+The Bronze Layer contains **unstructured free-text clinical notes** that
+simulate real-world Electronic Health Record (EHR) data. This layer
+demonstrates how healthcare data typically arrives in practice — as
+doctor's notes, discharge summaries, and intake forms — NOT as clean CSVs.
 
 ## Script
-- **`load_and_inspect.py`** — Loads all three CSVs and produces a data quality
-  audit report (shapes, dtypes, missing values). **Does NOT modify any file.**
+- **`generate_unstructured.py`** — Converts the 3 structured CSV datasets into
+  realistic free-text clinical notes with natural language variation.
 
 ## Files
 
-| File | Source | Rows | Columns | Missing Values |
-|---|---|---|---|---|
-| `Autism_Screening_Data_Combined.csv` | Kaggle (Thabtah, 2017) | 6,075 | 15 | 0 |
-| `diabetes_data_upload.csv` | Kaggle (Islam et al., 2020) | 520 | 17 | 0 |
-| `healthcare-dataset-stroke-data.csv` | Kaggle (fedesoriano, 2021) | 5,110 | 12 | **201** (BMI column) |
+| File | Records | Size | Description |
+|---|---|---|---|
+| `autism_clinical_notes.txt` | 6,075 | 11.4 MB | AQ-10 screening assessment notes |
+| `diabetes_clinical_notes.txt` | 520 | 702 KB | Endocrinology consultation notes |
+| `stroke_clinical_notes.txt` | 5,110 | 4.0 MB | Cerebrovascular discharge summaries |
 
-## Data Quality Issues Detected
+## Sample Unstructured Record (Autism)
 
-### Autism Screening
-- Column name typo: `Jauundice` (double 'u') instead of `Jaundice`
-- `Sex` column uses inconsistent encoding: `m`/`f` instead of `Male`/`Female`
-- Binary features stored as text strings (`yes`/`no`) instead of 0/1
-- Target `Class` stored as text (`YES`/`NO`)
+```text
+======================================================================
+AUTISM SCREENING — CLINICAL ASSESSMENT NOTE
+Record #00001
+======================================================================
 
-### Diabetes Risk
-- Target column named `class` (lowercase) — inconsistent with other datasets
-- All 14 symptom columns stored as text strings (`Yes`/`No`)
-- No missing values detected
+PATIENT DEMOGRAPHICS:
+  The patient is a 15-year-old male presenting for routine
+  developmental and behavioral screening.
 
-### Stroke Prediction
-- Contains meaningless surrogate `id` column (no predictive value)
-- 1 row with `gender = 'Other'` — too sparse for reliable encoding
-- **201 missing BMI values (3.93%)** — requires imputation in Silver Layer
-- `work_type` has 5 categories, `smoking_status` has 4 categories (multi-level)
+CLINICAL HISTORY:
+  No history of neonatal jaundice.
+  No family history of Autism Spectrum Disorder (ASD).
+
+AQ-10 BEHAVIORAL SCREENING QUESTIONNAIRE:
+  Item A1: "I often notice small sounds when others do not" — endorsed (YES)
+  Item A2: "I usually concentrate more on the whole picture..." — endorsed (YES)
+  ...
+  TOTAL AQ-10 SCORE: 5 out of 10
+
+SCREENING OUTCOME:
+  Classification: NO
+  Assessment: ASD NEGATIVE
+```
+
+## Data Quality Characteristics (Unstructured)
+- Free-text format with natural language variation
+- 3 different note templates per dataset (random selection)
+- Clinical terminology embedded in narrative text
+- Missing BMI values represented as "Not recorded (missing value)"
+- Gender "Other" preserved in stroke notes (handled during extraction)
 
 ## Key Principle
-> **Bronze data is NEVER modified.** All transformations happen in the
-> Silver Layer. This ensures full data lineage and reproducibility.
+> **Bronze data preserves the raw, unstructured nature of clinical text.**
+> All NLP extraction and structuring happens in the Silver Layer.
+> This demonstrates the full data engineering lifecycle from raw text → analytics.

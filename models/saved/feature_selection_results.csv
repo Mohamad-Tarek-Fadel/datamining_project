@@ -1,0 +1,10 @@
+dataset,Method,Features,CV F1 (mean),CV F1 (std)
+autism,Baseline (All),15,1.0,0.0
+autism,Heuristic (top-7),7,0.9391,0.005
+autism,GA (3 features),3,0.9368,0.0084
+diabetes,Baseline (All),16,0.9687,0.0195
+diabetes,Heuristic (top-8),8,0.9304,0.0141
+diabetes,GA (6 features),6,0.9494,0.0177
+stroke,Baseline (All),15,0.969,0.0065
+stroke,Heuristic (top-7),7,0.9057,0.0066
+stroke,GA (2 features),2,0.945,0.0031
