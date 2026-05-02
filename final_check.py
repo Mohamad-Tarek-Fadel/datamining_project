@@ -79,10 +79,10 @@ if db.exists():
 
     # Row counts
     expected = {
-        "dim_patient": 11704,
-        "fact_autism": 6075,
+        "dim_patient": 12759,
+        "fact_autism": 7129,
         "fact_diabetes": 520,
-        "fact_stroke": 5109,
+        "fact_stroke": 5110,
     }
     for tbl, exp in expected.items():
         n = cur.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
