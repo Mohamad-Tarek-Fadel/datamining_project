@@ -22,6 +22,13 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 import joblib
+import shap
+try:
+    from lime.lime_tabular import LimeTabularExplainer
+    LIME_AVAILABLE = True
+except ImportError:
+    LIME_AVAILABLE = False
+    print("[WARNING] LIME not installed. Run 'pip install lime' to enable.")
 from sklearn.inspection import permutation_importance
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import export_text
@@ -289,7 +296,7 @@ def build_stroke_rules() -> RuleEngine:
 
 def compute_feature_importance(X_train, y_train, X_test, y_test,
                                feature_names, dataset_name):
-    """Compute tree-based and permutation feature importances."""
+    """Compute tree-based, permutation, and SHAP feature importances."""
     rf = RandomForestClassifier(n_estimators=100, random_state=42,
                                 class_weight="balanced", n_jobs=-1)
     rf.fit(X_train, y_train)
@@ -304,7 +311,62 @@ def compute_feature_importance(X_train, y_train, X_test, y_test,
     perm_imp = pd.Series(perm.importances_mean,
                          index=feature_names).sort_values(ascending=False)
 
-    return tree_imp, perm_imp
+    # SHAP importance
+    try:
+        explainer = shap.TreeExplainer(rf)
+        shap_values = explainer.shap_values(X_test)
+        
+        # Handle different output formats of shap_values across SHAP versions
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1]  # positive class
+        elif len(np.shape(shap_values)) == 3:
+            shap_values = shap_values[:, :, 1]  # (N_samples, N_features, N_classes)
+            
+        shap_imp = pd.Series(np.abs(shap_values).mean(axis=0),
+                             index=feature_names).sort_values(ascending=False)
+    except Exception as e:
+        print(f"  [WARNING] SHAP failed: {e}")
+        shap_imp = pd.Series(0, index=feature_names)
+
+    return tree_imp, perm_imp, shap_imp
+
+
+def compute_lime_explanation(model, X_train, X_sample, feature_names, dataset_name):
+    """Generate a LIME local explanation for a single patient sample."""
+    if not LIME_AVAILABLE:
+        print("  [SKIP] LIME not installed.")
+        return {}
+
+    try:
+        explainer = LimeTabularExplainer(
+            X_train,
+            feature_names=feature_names,
+            class_names=["Low Risk", "High Risk"],
+            mode="classification",
+            discretize_continuous=False,  # Keep plain feature names on chart axes
+            random_state=42,
+        )
+
+        predict_fn = model.predict_proba if hasattr(model, "predict_proba") else model.predict
+        explanation = explainer.explain_instance(
+            X_sample,
+            predict_fn,
+            num_features=len(feature_names),
+        )
+
+        # Extract feature weight mapping {feature_name: weight}
+        lime_weights = dict(explanation.as_list())
+        # Sort by absolute weight descending
+        lime_imp = dict(sorted(lime_weights.items(), key=lambda x: abs(x[1]), reverse=True))
+
+        print(f"\n  Top features (LIME — local explanation):")
+        for i, (feat, val) in enumerate(list(lime_imp.items())[:5]):
+            print(f"    {feat:<35} {val:.4f}")
+
+        return lime_imp
+    except Exception as e:
+        print(f"  [WARNING] LIME failed: {e}")
+        return {}
 
 
 # ===========================================================================
@@ -340,7 +402,7 @@ def main():
 
         # ── Feature Importance ───────────────────────────────────────────────
         step("Computing feature importances...")
-        tree_imp, perm_imp = compute_feature_importance(
+        tree_imp, perm_imp, shap_imp = compute_feature_importance(
             X_train, y_train, X_test, y_test, feature_names, ds_name)
 
         print(f"\n  Top features (tree-based):")
@@ -349,6 +411,10 @@ def main():
 
         print(f"\n  Top features (permutation):")
         for feat, val in perm_imp.head(5).items():
+            print(f"    {feat:<25} {val:.4f}")
+
+        print(f"\n  Top features (SHAP):")
+        for feat, val in shap_imp.head(5).items():
             print(f"    {feat:<25} {val:.4f}")
 
         # ── Rule Engine Demo ─────────────────────────────────────────────────
@@ -383,12 +449,22 @@ def main():
         explanation = engine.explain(patient, pred, prob)
         print(explanation)
 
+        # ── LIME Explanation ─────────────────────────────────────────────────
+        step("Computing LIME local explanation for sample patient...")
+        lime_model = model if model_path.exists() else None
+        lime_imp = {}
+        if lime_model is not None:
+            lime_imp = compute_lime_explanation(
+                lime_model, X_train, X_test[0], feature_names, ds_name)
+
         # ── Save rule engine ─────────────────────────────────────────────────
         explain_data = {
             "rules": [(r.rule_id, r.condition, r.conclusion,
                        r.confidence, r.evidence) for r in engine.rules],
             "tree_importance": tree_imp.to_dict(),
             "perm_importance": perm_imp.to_dict(),
+            "shap_importance": shap_imp.to_dict(),
+            "lime_importance": lime_imp,
         }
         save_path = SAVED_DIR / f"{ds_name}_explainability.pkl"
         joblib.dump(explain_data, save_path)

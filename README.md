@@ -32,66 +32,33 @@ Raw CSVs (datasets/)
       │
       ▼
 ┌─────────────────────────────────────────────────────────┐
-│              LAYER 1 — ETL PIPELINE                     │
-│  load_and_inspect.py → clean.py → warehouse.py          │
+│              LAYER 1 — PREPROCESSING                    │
+│  load_and_inspect.py → clean.py                         │
 │  • Fix typos, encode binaries, impute BMI by age bracket│
 │  • One-hot encode multi-category stroke features        │
+│  • Output: pandas DataFrames / CSVs                     │
 └────────────────────────┬────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│           LAYER 2 — DATA WAREHOUSE (SQLite)             │
-│  Star Schema: dim_patient + 3 fact tables               │
-│  4 analytical views · 8 indexes · FK enforcement        │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│              LAYER 3 — EDA (Phase 2)                    │
+│              LAYER 2 — EDA (Phase 2)                    │
 │  Class distributions · Correlation heatmaps             │
 │  Chi-square tests · Mann-Whitney U · Feature importance │
 └────────────────────────┬────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│         LAYER 4 — FEATURE ENGINEERING (Phase 3)         │
+│         LAYER 3 — FEATURE ENGINEERING & XAI (Phase 3)   │
 │  Stratified splits · StandardScaler · SMOTE             │
-│  Class weights · CV setup · Artifact persistence        │
+│  GA Feature Selection · SHAP Interpretability           │
 └────────────────────────┬────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│           LAYER 5 — ML ENGINE (Phase 4)                 │
-│  5 models × 3 diseases · ROC/PR/CM evaluation           │
-│  Threshold optimisation · Model persistence             │
+│           LAYER 4 — ML ENGINE (Phase 4)                 │
+│  Base models + Voting & Stacking Ensembles              │
+│  Unit testing · Experiment tracking                     │
 └─────────────────────────────────────────────────────────┘
-```
-
-### Star Schema (Data Warehouse)
-
-```
-                   ┌──────────────────────────┐
-                   │       dim_patient         │
-                   │  patient_id  PK AUTO      │
-                   │  age         REAL         │
-                   │  gender      INTEGER 0/1  │
-                   │  source_dataset TEXT      │
-                   └────────────┬─────────────┘
-                                │  (FK ON DELETE CASCADE)
-           ┌────────────────────┼─────────────────────┐
-           │                    │                     │
-  ┌────────▼────────┐  ┌────────▼────────┐  ┌────────▼────────┐
-  │  fact_autism    │  │  fact_diabetes  │  │  fact_stroke    │
-  │  a1–a10 items   │  │  14 symptoms    │  │  clinical meas. │
-  │  aq_score       │  │  label          │  │  smoking, work  │
-  │  jaundice       │  └─────────────────┘  │  label          │
-  │  family_asd     │                       └─────────────────┘
-  │  label          │
-  └─────────────────┘
-
-  Views: vw_autism_full · vw_diabetes_full · vw_stroke_full
-         vw_disease_summary
-  Indexes: 8 (FK + label + source_dataset + gender)
 ```
 
 ---

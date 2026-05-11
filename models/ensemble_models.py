@@ -22,11 +22,10 @@ import joblib
 from sklearn.ensemble import (
     VotingClassifier,
     StackingClassifier,
-    RandomForestClassifier,
-    GradientBoostingClassifier,
 )
 from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.metrics import (
     classification_report,
@@ -38,12 +37,24 @@ from sklearn.metrics import (
     average_precision_score,
     matthews_corrcoef,
 )
+try:
+    import mlflow
+    import mlflow.sklearn
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    print("\n[WARNING] MLflow is not installed. Experiment tracking will be disabled. Run 'pip install mlflow' to enable.")
 
 warnings.filterwarnings("ignore")
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 SAVED_DIR = SCRIPT_DIR / "saved"
 FIGS_DIR = SCRIPT_DIR.parent / "reports" / "figures"
+
+# Set up MLflow tracking URI if available
+if MLFLOW_AVAILABLE:
+    mlflow.set_tracking_uri("file://" + str(SCRIPT_DIR.parent / "mlruns"))  
+    mlflow.set_experiment("Clinical_Intelligence")
 
 
 def banner(title, width=72, char="="):
@@ -63,15 +74,12 @@ def step(msg):
 def get_base_estimators(dataset_name):
     """Return a list of (name, estimator) tuples for ensemble building."""
     cw = "balanced"
+    # Note: SVM must have probability=True for Soft Voting and Stacking
     estimators = [
         ("lr", LogisticRegression(max_iter=1000, random_state=42,
                                   class_weight=cw)),
-        ("dt", DecisionTreeClassifier(max_depth=10, random_state=42,
-                                      class_weight=cw)),
-        ("rf", RandomForestClassifier(n_estimators=100, random_state=42,
-                                      class_weight=cw, n_jobs=-1)),
-        ("gb", GradientBoostingClassifier(n_estimators=100, random_state=42,
-                                          max_depth=5)),
+        ("svm", SVC(probability=True, random_state=42, class_weight=cw)),
+        ("nb", GaussianNB()),
     ]
     return estimators
 
@@ -105,44 +113,68 @@ def build_stacking_ensemble(estimators):
     )
 
 
+from contextlib import contextmanager
+
+@contextmanager
+def dummy_run():
+    yield
+
 # ---------------------------------------------------------------------------
-# 4.  EVALUATION
+# 4.  EVALUATION & MLFLOW TRACKING
 # ---------------------------------------------------------------------------
 
-def evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
+def evaluate_model(model, X_train, y_train, X_test, y_test, model_name, dataset_name):
     """Train, predict, and compute comprehensive metrics."""
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
+    run_context = mlflow.start_run(run_name=f"{dataset_name} - {model_name}", nested=True) if MLFLOW_AVAILABLE else dummy_run()
+    with run_context:
+        if MLFLOW_AVAILABLE:
+            mlflow.log_param("dataset", dataset_name)
+            mlflow.log_param("model_name", model_name)
+            mlflow.log_param("features", X_train.shape[1])
+        
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
 
-    try:
-        y_proba = model.predict_proba(X_test)[:, 1]
-        roc = roc_auc_score(y_test, y_proba)
-        pr_auc = average_precision_score(y_test, y_proba)
-    except Exception:
-        roc = 0.0
-        pr_auc = 0.0
+        try:
+            y_proba = model.predict_proba(X_test)[:, 1]
+            roc = roc_auc_score(y_test, y_proba)
+            pr_auc = average_precision_score(y_test, y_proba)
+        except Exception:
+            roc = 0.0
+            pr_auc = 0.0
 
-    # CV score
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    cv_f1 = cross_val_score(model, X_train, y_train, cv=cv,
-                            scoring="f1_weighted", n_jobs=-1)
+        # CV score
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        cv_f1 = cross_val_score(model, X_train, y_train, cv=cv,
+                                scoring="f1_weighted", n_jobs=-1)
 
-    metrics = {
-        "Model": model_name,
-        "CV F1": round(float(np.mean(cv_f1)), 4),
-        "F1": round(f1_score(y_test, y_pred, average="weighted"), 4),
-        "Recall": round(recall_score(y_test, y_pred, average="weighted"), 4),
-        "Precision": round(precision_score(y_test, y_pred, average="weighted"), 4),
-        "ROC-AUC": round(roc, 4),
-        "PR-AUC": round(pr_auc, 4),
-        "MCC": round(matthews_corrcoef(y_test, y_pred), 4),
-    }
+        from sklearn.metrics import accuracy_score
+        metrics = {
+            "Dataset": dataset_name,
+            "Model": model_name,
+            "Features": X_train.shape[1],
+            "CV F1": round(float(np.mean(cv_f1)), 4),
+            "Accuracy": round(accuracy_score(y_test, y_pred), 4),
+            "F1": round(f1_score(y_test, y_pred, average="weighted"), 4),
+            "Recall": round(recall_score(y_test, y_pred, average="weighted"), 4),
+            "Precision": round(precision_score(y_test, y_pred, average="weighted"), 4),
+            "ROC-AUC": round(roc, 4),
+            "PR-AUC": round(pr_auc, 4),
+            "MCC": round(matthews_corrcoef(y_test, y_pred), 4),
+        }
 
-    # Error analysis
-    cm = confusion_matrix(y_test, y_pred)
-    report = classification_report(y_test, y_pred, output_dict=True)
+        for key, val in metrics.items():
+            if isinstance(val, (int, float)) and MLFLOW_AVAILABLE:
+                mlflow.log_metric(key.lower().replace("-", "_").replace(" ", "_"), val)
 
-    return metrics, cm, report, model
+        # Error analysis
+        cm = confusion_matrix(y_test, y_pred)
+        report = classification_report(y_test, y_pred, output_dict=True)
+
+        if MLFLOW_AVAILABLE:
+            mlflow.sklearn.log_model(model, "model")
+
+        return metrics, cm, report, model
 
 
 # ---------------------------------------------------------------------------
@@ -167,13 +199,8 @@ def main():
         X_test = art["X_test"]
         y_test = art["y_test"]
 
-        # Use SMOTE data for stroke
-        if "X_train_smote" in art and ds_name == "stroke":
-            X_train_fit = art["X_train_smote"]
-            y_train_fit = art["y_train_smote"]
-        else:
-            X_train_fit = X_train
-            y_train_fit = y_train
+        X_train_fit = X_train
+        y_train_fit = y_train
 
         banner(f"DATASET: {ds_name.upper()}", char="-")
         step(f"Train: {X_train_fit.shape}, Test: {X_test.shape}")
@@ -185,7 +212,7 @@ def main():
         voting_soft = build_voting_ensemble(estimators, voting="soft")
         m1, cm1, r1, fitted_vs = evaluate_model(
             voting_soft, X_train_fit, y_train_fit, X_test, y_test,
-            "Voting (Soft)")
+            "Voting (Soft)", ds_name)
         all_results.append({"dataset": ds_name, **m1})
         step(f"  F1={m1['F1']:.4f}  Recall={m1['Recall']:.4f}  "
              f"ROC-AUC={m1['ROC-AUC']:.4f}")
@@ -195,7 +222,7 @@ def main():
         voting_hard = build_voting_ensemble(estimators, voting="hard")
         m2, cm2, r2, fitted_vh = evaluate_model(
             voting_hard, X_train_fit, y_train_fit, X_test, y_test,
-            "Voting (Hard)")
+            "Voting (Hard)", ds_name)
         all_results.append({"dataset": ds_name, **m2})
         step(f"  F1={m2['F1']:.4f}  Recall={m2['Recall']:.4f}")
 
@@ -204,7 +231,7 @@ def main():
         stacking = build_stacking_ensemble(estimators)
         m3, cm3, r3, fitted_st = evaluate_model(
             stacking, X_train_fit, y_train_fit, X_test, y_test,
-            "Stacking (LR Meta)")
+            "Stacking (LR Meta)", ds_name)
         all_results.append({"dataset": ds_name, **m3})
         step(f"  F1={m3['F1']:.4f}  Recall={m3['Recall']:.4f}  "
              f"ROC-AUC={m3['ROC-AUC']:.4f}")
